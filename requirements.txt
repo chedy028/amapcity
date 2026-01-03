@@ -1,0 +1,17 @@
+# Cable Ampacity Design Assistant - Backend Dependencies
+
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# HTTP client for OpenRouter
+httpx>=0.26.0
+
+# Data validation
+pydantic>=2.5.0
+
+# PDF generation (optional)
+weasyprint>=60.0
+
+# Development
+python-dotenv>=1.0.0
