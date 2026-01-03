@@ -7,7 +7,7 @@ Based on Neher-McGrath (1957) and IEC 60287 standards.
 
 import math
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from .ac_resistance import ConductorSpec, calculate_ac_resistance
 from .losses import (
@@ -20,7 +20,11 @@ from .losses import (
 from .thermal_resistance import (
     CableGeometry,
     BurialConditions,
+    ConduitConditions,
+    DuctBankConditions,
     calculate_thermal_resistances,
+    calculate_conduit_thermal_resistances,
+    calculate_ductbank_thermal_resistances,
 )
 
 
@@ -60,9 +64,13 @@ class OperatingConditions:
     load_factor: float = 1.0      # Load factor for cyclic rating (0-1)
 
 
+# Type alias for installation conditions
+InstallationConditions = Union[BurialConditions, ConduitConditions, DuctBankConditions]
+
+
 def calculate_ampacity(
     cable: CableSpec,
-    burial: BurialConditions,
+    installation: InstallationConditions,
     operating: OperatingConditions,
     tolerance: float = 0.01,
     max_iterations: int = 100,
@@ -83,7 +91,7 @@ def calculate_ampacity(
 
     Args:
         cable: Cable specification
-        burial: Burial conditions
+        installation: Installation conditions (burial, conduit, or duct bank)
         operating: Operating conditions
         tolerance: Convergence tolerance for ampacity (A)
         max_iterations: Maximum iterations
@@ -98,11 +106,23 @@ def calculate_ampacity(
         tc_max = MAX_CONDUCTOR_TEMP[cable.insulation.material]
 
     # Temperature difference available
-    delta_t_available = tc_max - burial.ambient_temp
+    delta_t_available = tc_max - installation.ambient_temp
 
-    # Calculate thermal resistances
+    # Determine installation type and calculate thermal resistances
     geometry = cable.geometry
-    thermal_r = calculate_thermal_resistances(geometry, burial)
+
+    if isinstance(installation, DuctBankConditions):
+        installation_type = "duct_bank"
+        thermal_r = calculate_ductbank_thermal_resistances(geometry, installation)
+        spacing = installation.duct_spacing_h * 1000  # m to mm for resistance calc
+    elif isinstance(installation, ConduitConditions):
+        installation_type = "conduit"
+        thermal_r = calculate_conduit_thermal_resistances(geometry, installation)
+        spacing = installation.spacing * 1000  # m to mm
+    else:
+        installation_type = "direct_buried"
+        thermal_r = calculate_thermal_resistances(geometry, installation)
+        spacing = installation.spacing * 1000  # m to mm
 
     # Calculate dielectric losses (constant, independent of current)
     wd = calculate_dielectric_loss(
@@ -117,13 +137,13 @@ def calculate_ampacity(
         r_init = calculate_ac_resistance(
             cable.conductor,
             temperature=tc_max,
-            spacing=burial.spacing * 1000,  # m to mm
+            spacing=spacing,
             frequency=operating.frequency,
         )
         lambda1 = calculate_shield_loss_factor(
             cable.shield,
             r_init["rac"],
-            burial.spacing * 1000,
+            spacing,
             operating.frequency,
         )
     else:
@@ -134,11 +154,15 @@ def calculate_ampacity(
     r2 = thermal_r["r2"]
     r4 = thermal_r["r4_effective"]
 
-    # For conductor losses: R_total = (1+λ1)×(R1 + R2 + R4)
-    r_conductor = (1 + lambda1) * (r1 + r2 + r4)
+    # R3 (conduit) and R_concrete only apply for certain installation types
+    r3 = thermal_r.get("r3", 0.0)
+    r_concrete = thermal_r.get("r_concrete", 0.0)
 
-    # For dielectric losses: R_dielectric = 0.5×R1 + R2 + R4
-    r_dielectric = 0.5 * r1 + r2 + r4
+    # For conductor losses: R_total = (1+λ1)×(R1 + R2 + R3 + R_concrete + R4)
+    r_conductor = (1 + lambda1) * (r1 + r2 + r3 + r_concrete + r4)
+
+    # For dielectric losses: R_dielectric = 0.5×R1 + R2 + R3 + R_concrete + R4
+    r_dielectric = 0.5 * r1 + r2 + r3 + r_concrete + r4
 
     # Temperature rise from dielectric losses (constant)
     delta_t_dielectric = wd * r_dielectric
@@ -157,7 +181,7 @@ def calculate_ampacity(
     r_ac_init = calculate_ac_resistance(
         cable.conductor,
         temperature=tc_max,
-        spacing=burial.spacing * 1000,
+        spacing=spacing,
         frequency=operating.frequency,
     )
     i_estimate = math.sqrt(delta_t_conductor / (r_ac_init["rac"] * r_conductor))
@@ -170,13 +194,13 @@ def calculate_ampacity(
 
         # Calculate actual temperature rise
         delta_t_calc = wc * r_conductor + delta_t_dielectric
-        t_conductor = burial.ambient_temp + delta_t_calc
+        t_conductor = installation.ambient_temp + delta_t_calc
 
         # Recalculate AC resistance at actual temperature
         r_ac = calculate_ac_resistance(
             cable.conductor,
             temperature=t_conductor,
-            spacing=burial.spacing * 1000,
+            spacing=spacing,
             frequency=operating.frequency,
         )
 
@@ -185,10 +209,10 @@ def calculate_ampacity(
             lambda1 = calculate_shield_loss_factor(
                 cable.shield,
                 r_ac["rac"],
-                burial.spacing * 1000,
+                spacing,
                 operating.frequency,
             )
-            r_conductor = (1 + lambda1) * (r1 + r2 + r4)
+            r_conductor = (1 + lambda1) * (r1 + r2 + r3 + r_concrete + r4)
 
         # New current estimate
         new_current = math.sqrt(delta_t_conductor / (r_ac["rac"] * r_conductor))
@@ -208,7 +232,7 @@ def calculate_ampacity(
     r_ac_final = calculate_ac_resistance(
         cable.conductor,
         temperature=tc_max,
-        spacing=burial.spacing * 1000,
+        spacing=spacing,
         frequency=operating.frequency,
     )
 
@@ -224,11 +248,12 @@ def calculate_ampacity(
     else:
         current_cyclic = current
 
-    return {
+    result = {
         "ampacity": current,
         "ampacity_cyclic": current_cyclic,
+        "installation_type": installation_type,
         "max_conductor_temp": tc_max,
-        "ambient_temp": burial.ambient_temp,
+        "ambient_temp": installation.ambient_temp,
         "delta_t_available": delta_t_available,
         "ac_resistance": {
             "rdc": r_ac_final["rdc"],
@@ -245,6 +270,8 @@ def calculate_ampacity(
         "thermal_resistance": {
             "r1_insulation": r1,
             "r2_jacket": r2,
+            "r3_conduit": r3,
+            "r_concrete": r_concrete,
             "r4_earth": thermal_r["r4"],
             "r4_effective": r4,
             "mutual_heating_factor": thermal_r["f_mutual"],
@@ -259,14 +286,31 @@ def calculate_ampacity(
         "iterations": iteration + 1 if 'iteration' in dir() else 1,
     }
 
+    # Add duct bank specific info
+    if installation_type == "duct_bank":
+        result["duct_info"] = {
+            "target_duct": thermal_r.get("target_duct"),
+            "duct_positions": thermal_r.get("duct_positions"),
+        }
+
+    return result
+
 
 def format_results(results: dict) -> str:
     """Format ampacity results for display."""
+    installation_type = results.get("installation_type", "direct_buried")
+    installation_labels = {
+        "direct_buried": "Direct Buried",
+        "conduit": "Conduit",
+        "duct_bank": "Duct Bank",
+    }
+
     lines = [
         "=" * 60,
         "CABLE AMPACITY CALCULATION RESULTS",
         "=" * 60,
         "",
+        f"Installation Type:       {installation_labels.get(installation_type, installation_type)}",
         f"Ampacity (steady-state): {results['ampacity']:.1f} A",
         f"Ampacity (cyclic):       {results['ampacity_cyclic']:.1f} A",
         "",
@@ -295,6 +339,19 @@ def format_results(results: dict) -> str:
         "-" * 40,
         f"  R1 (insulation):       {results['thermal_resistance']['r1_insulation']:.4f} K·m/W",
         f"  R2 (jacket):           {results['thermal_resistance']['r2_jacket']:.4f} K·m/W",
+    ]
+
+    # Add R3 (conduit) if applicable
+    r3 = results['thermal_resistance'].get('r3_conduit', 0)
+    if r3 > 0:
+        lines.append(f"  R3 (conduit):          {r3:.4f} K·m/W")
+
+    # Add R_concrete if applicable
+    r_concrete = results['thermal_resistance'].get('r_concrete', 0)
+    if r_concrete > 0:
+        lines.append(f"  R (concrete):          {r_concrete:.4f} K·m/W")
+
+    lines.extend([
         f"  R4 (earth):            {results['thermal_resistance']['r4_earth']:.4f} K·m/W",
         f"  Mutual heating factor: {results['thermal_resistance']['mutual_heating_factor']:.3f}",
         f"  R4 (effective):        {results['thermal_resistance']['r4_effective']:.4f} K·m/W",
@@ -307,5 +364,5 @@ def format_results(results: dict) -> str:
         f"  Total:                 {results['temperature_rise']['total']:.2f} °C",
         "",
         "=" * 60,
-    ]
+    ])
     return "\n".join(lines)

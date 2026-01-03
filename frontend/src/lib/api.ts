@@ -27,10 +27,29 @@ export interface ShieldInput {
 }
 
 export interface InstallationInput {
+  installation_type: 'direct_buried' | 'conduit' | 'duct_bank';
   depth_m: number;
   soil_resistivity: number;
   ambient_temp_c: number;
   spacing_m: number;
+
+  // Conduit-specific
+  conduit_id_mm?: number;
+  conduit_od_mm?: number;
+  conduit_material?: 'pvc' | 'hdpe' | 'fiberglass' | 'steel';
+  num_conduits?: number;
+
+  // Duct bank-specific
+  concrete_resistivity?: number;
+  bank_width_m?: number;
+  bank_height_m?: number;
+  duct_rows?: number;
+  duct_cols?: number;
+  duct_spacing_h_m?: number;
+  duct_spacing_v_m?: number;
+  duct_id_mm?: number;
+  duct_od_mm?: number;
+  occupied_ducts?: [number, number][];
 }
 
 export interface OperatingInput {
@@ -53,6 +72,7 @@ export interface CalculationRequest {
 export interface CalculationResponse {
   ampacity_a: number;
   ampacity_cyclic_a: number;
+  installation_type: string;
   max_conductor_temp_c: number;
   ambient_temp_c: number;
   delta_t_available_c: number;
@@ -71,6 +91,8 @@ export interface CalculationResponse {
   thermal_resistance: {
     r1_insulation: number;
     r2_jacket: number;
+    r3_conduit?: number;
+    r_concrete?: number;
     r4_earth: number;
     r4_effective: number;
     mutual_heating_factor: number;
@@ -84,6 +106,10 @@ export interface CalculationResponse {
   shield_loss_factor: number;
   design_status: 'PASS' | 'FAIL';
   formatted_report: string;
+  duct_info?: {
+    target_duct: [number, number];
+    duct_positions: Array<[number, number, number, number]>;
+  };
 }
 
 export interface ChatMessage {
@@ -133,10 +159,18 @@ export interface ReportRequest {
     conductor_material: 'copper' | 'aluminum';
     conductor_size_mm2: number;
     insulation_type: 'xlpe' | 'epr' | 'paper_oil';
+    installation_type: 'direct_buried' | 'conduit' | 'duct_bank';
     burial_depth_m: number;
     soil_resistivity: number;
     ambient_temp_c: number;
     phase_spacing_m: number;
+    // Conduit parameters
+    conduit_material?: string;
+    conduit_od_mm?: number;
+    // Duct bank parameters
+    concrete_resistivity?: number;
+    duct_rows?: number;
+    duct_cols?: number;
   };
   results: {
     ampacity_a: number;

@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { CONDUCTOR_SIZES, getInsulationThickness } from '@/lib/api';
+import { CableCrossSection } from './CableCrossSection';
 
 export interface DesignFormData {
   // Project
@@ -32,11 +33,28 @@ export interface DesignFormData {
   jacketMaterial: 'pvc' | 'pe' | 'hdpe';
 
   // Installation
+  installationType: 'direct_buried' | 'conduit' | 'duct_bank';
   burialDepth: number;
   soilResistivity: number;
   ambientTemp: number;
   phaseSpacing: number;
   arrangement: 'trefoil' | 'flat';
+
+  // Conduit specific
+  conduitIdMm: number;
+  conduitOdMm: number;
+  conduitMaterial: 'pvc' | 'hdpe' | 'fiberglass' | 'steel';
+  numConduits: number;
+
+  // Duct bank specific
+  concreteResistivity: number;
+  ductRows: number;
+  ductCols: number;
+  ductSpacingH: number;
+  ductSpacingV: number;
+  ductIdMm: number;
+  ductOdMm: number;
+  occupiedDucts: [number, number][];
 
   // Constraints
   maxConductorTemp: number;
@@ -57,11 +75,26 @@ const defaultFormData: DesignFormData = {
   insulationType: 'xlpe',
   shieldBonding: 'single_point',
   jacketMaterial: 'pe',
+  installationType: 'direct_buried',
   burialDepth: 1.0,
   soilResistivity: 1.0,
   ambientTemp: 25,
   phaseSpacing: 0.3,
   arrangement: 'trefoil',
+  // Conduit defaults
+  conduitIdMm: 150,
+  conduitOdMm: 160,
+  conduitMaterial: 'pvc',
+  numConduits: 3,
+  // Duct bank defaults
+  concreteResistivity: 1.0,
+  ductRows: 2,
+  ductCols: 3,
+  ductSpacingH: 0.2,
+  ductSpacingV: 0.2,
+  ductIdMm: 150,
+  ductOdMm: 160,
+  occupiedDucts: [[0, 0], [0, 1], [0, 2]], // Top row occupied by default
   maxConductorTemp: 90,
   designMargin: 10,
 };
@@ -338,9 +371,32 @@ export function DesignWizard({ onCalculate, onFormChange, isCalculating }: Desig
           </TabsContent>
 
           <TabsContent value="installation" className="space-y-4 mt-4">
+            {/* Installation Type Selector */}
+            <div className="space-y-2">
+              <Label>Installation Type</Label>
+              <Select
+                value={formData.installationType}
+                onValueChange={(v) => updateField('installationType', v as 'direct_buried' | 'conduit' | 'duct_bank')}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="direct_buried">Direct Buried</SelectItem>
+                  <SelectItem value="conduit">PVC/HDPE Conduit</SelectItem>
+                  <SelectItem value="duct_bank">Concrete Duct Bank</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Separator className="my-2" />
+
+            {/* Common Parameters */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="burialDepth">Burial Depth (m)</Label>
+                <Label htmlFor="burialDepth">
+                  {formData.installationType === 'duct_bank' ? 'Depth to Top of Bank (m)' : 'Burial Depth (m)'}
+                </Label>
                 <Input
                   id="burialDepth"
                   type="number"
@@ -348,7 +404,6 @@ export function DesignWizard({ onCalculate, onFormChange, isCalculating }: Desig
                   value={formData.burialDepth}
                   onChange={(e) => updateField('burialDepth', parseFloat(e.target.value) || 1)}
                 />
-                <p className="text-xs text-muted-foreground">Depth to cable center</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="soilResistivity">Soil Thermal Resistivity (K·m/W)</Label>
@@ -359,7 +414,6 @@ export function DesignWizard({ onCalculate, onFormChange, isCalculating }: Desig
                   value={formData.soilResistivity}
                   onChange={(e) => updateField('soilResistivity', parseFloat(e.target.value) || 1)}
                 />
-                <p className="text-xs text-muted-foreground">Typical: 0.5 (wet) - 2.5 (dry)</p>
               </div>
             </div>
 
@@ -373,33 +427,209 @@ export function DesignWizard({ onCalculate, onFormChange, isCalculating }: Desig
                   onChange={(e) => updateField('ambientTemp', parseFloat(e.target.value) || 25)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="phaseSpacing">Phase Spacing (m)</Label>
-                <Input
-                  id="phaseSpacing"
-                  type="number"
-                  step="0.05"
-                  value={formData.phaseSpacing}
-                  onChange={(e) => updateField('phaseSpacing', parseFloat(e.target.value) || 0)}
-                />
-                <p className="text-xs text-muted-foreground">0 for single cable</p>
-              </div>
+              {formData.installationType !== 'duct_bank' && (
+                <div className="space-y-2">
+                  <Label htmlFor="phaseSpacing">
+                    {formData.installationType === 'conduit' ? 'Conduit Spacing (m)' : 'Phase Spacing (m)'}
+                  </Label>
+                  <Input
+                    id="phaseSpacing"
+                    type="number"
+                    step="0.05"
+                    value={formData.phaseSpacing}
+                    onChange={(e) => updateField('phaseSpacing', parseFloat(e.target.value) || 0)}
+                  />
+                </div>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <Label>Cable Arrangement</Label>
-              <Select
-                value={formData.arrangement}
-                onValueChange={(v) => updateField('arrangement', v as 'trefoil' | 'flat')}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="trefoil">Trefoil (Touching)</SelectItem>
-                  <SelectItem value="flat">Flat Formation</SelectItem>
-                </SelectContent>
-              </Select>
+            {/* Conduit-Specific Parameters */}
+            {formData.installationType === 'conduit' && (
+              <>
+                <Separator className="my-2" />
+                <h4 className="text-sm font-medium">Conduit Parameters</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Conduit Material</Label>
+                    <Select
+                      value={formData.conduitMaterial}
+                      onValueChange={(v) => updateField('conduitMaterial', v as 'pvc' | 'hdpe' | 'fiberglass' | 'steel')}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pvc">PVC</SelectItem>
+                        <SelectItem value="hdpe">HDPE</SelectItem>
+                        <SelectItem value="fiberglass">Fiberglass</SelectItem>
+                        <SelectItem value="steel">Steel</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="numConduits">Number of Conduits</Label>
+                    <Input
+                      id="numConduits"
+                      type="number"
+                      min={1}
+                      max={6}
+                      value={formData.numConduits}
+                      onChange={(e) => updateField('numConduits', parseInt(e.target.value) || 1)}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="conduitIdMm">Conduit ID (mm)</Label>
+                    <Input
+                      id="conduitIdMm"
+                      type="number"
+                      value={formData.conduitIdMm}
+                      onChange={(e) => updateField('conduitIdMm', parseFloat(e.target.value) || 150)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="conduitOdMm">Conduit OD (mm)</Label>
+                    <Input
+                      id="conduitOdMm"
+                      type="number"
+                      value={formData.conduitOdMm}
+                      onChange={(e) => updateField('conduitOdMm', parseFloat(e.target.value) || 160)}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Duct Bank-Specific Parameters */}
+            {formData.installationType === 'duct_bank' && (
+              <>
+                <Separator className="my-2" />
+                <h4 className="text-sm font-medium">Duct Bank Parameters</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="concreteResistivity">Concrete ρ (K·m/W)</Label>
+                    <Input
+                      id="concreteResistivity"
+                      type="number"
+                      step="0.1"
+                      value={formData.concreteResistivity}
+                      onChange={(e) => updateField('concreteResistivity', parseFloat(e.target.value) || 1)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ductRows">Rows</Label>
+                    <Input
+                      id="ductRows"
+                      type="number"
+                      min={1}
+                      max={6}
+                      value={formData.ductRows}
+                      onChange={(e) => updateField('ductRows', parseInt(e.target.value) || 2)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ductCols">Columns</Label>
+                    <Input
+                      id="ductCols"
+                      type="number"
+                      min={1}
+                      max={6}
+                      value={formData.ductCols}
+                      onChange={(e) => updateField('ductCols', parseInt(e.target.value) || 3)}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="ductSpacingH">Horizontal Spacing (m)</Label>
+                    <Input
+                      id="ductSpacingH"
+                      type="number"
+                      step="0.05"
+                      value={formData.ductSpacingH}
+                      onChange={(e) => updateField('ductSpacingH', parseFloat(e.target.value) || 0.2)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ductSpacingV">Vertical Spacing (m)</Label>
+                    <Input
+                      id="ductSpacingV"
+                      type="number"
+                      step="0.05"
+                      value={formData.ductSpacingV}
+                      onChange={(e) => updateField('ductSpacingV', parseFloat(e.target.value) || 0.2)}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="ductIdMm">Duct ID (mm)</Label>
+                    <Input
+                      id="ductIdMm"
+                      type="number"
+                      value={formData.ductIdMm}
+                      onChange={(e) => updateField('ductIdMm', parseFloat(e.target.value) || 150)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ductOdMm">Duct OD (mm)</Label>
+                    <Input
+                      id="ductOdMm"
+                      type="number"
+                      value={formData.ductOdMm}
+                      onChange={(e) => updateField('ductOdMm', parseFloat(e.target.value) || 160)}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Click on ducts in the visualization below to mark them as occupied.
+                </p>
+              </>
+            )}
+
+            {/* Visualization */}
+            <Separator className="my-2" />
+            <div className="p-3 bg-muted rounded-lg">
+              <h4 className="text-sm font-medium mb-2">Cross-Section Preview</h4>
+              <CableCrossSection
+                conductorDiameter={getConductorDiameter(formData.conductorSize)}
+                insulationThickness={getInsulationThicknessValue()}
+                shieldThickness={2.0}
+                jacketThickness={3.0}
+                installationType={formData.installationType}
+                depth={formData.burialDepth}
+                spacing={formData.phaseSpacing}
+                conduitId={formData.conduitIdMm}
+                conduitOd={formData.conduitOdMm}
+                conduitMaterial={formData.conduitMaterial}
+                numConduits={formData.numConduits}
+                ductRows={formData.ductRows}
+                ductCols={formData.ductCols}
+                ductSpacingH={formData.ductSpacingH * 1000}
+                ductSpacingV={formData.ductSpacingV * 1000}
+                ductId={formData.ductIdMm}
+                ductOd={formData.ductOdMm}
+                occupiedDucts={formData.occupiedDucts}
+                soilResistivity={formData.soilResistivity}
+                concreteResistivity={formData.concreteResistivity}
+                ambientTemp={formData.ambientTemp}
+                onDuctSelect={(duct) => {
+                  if (duct && formData.installationType === 'duct_bank') {
+                    const exists = formData.occupiedDucts.some(
+                      d => d[0] === duct[0] && d[1] === duct[1]
+                    );
+                    if (exists) {
+                      updateField(
+                        'occupiedDucts',
+                        formData.occupiedDucts.filter(d => !(d[0] === duct[0] && d[1] === duct[1]))
+                      );
+                    } else {
+                      updateField('occupiedDucts', [...formData.occupiedDucts, duct]);
+                    }
+                  }
+                }}
+              />
             </div>
 
             <div className="flex justify-between mt-4">
@@ -449,8 +679,15 @@ export function DesignWizard({ onCalculate, onFormChange, isCalculating }: Desig
                 <div>Target Current: <Badge variant="outline">{formData.targetCurrent} A</Badge></div>
                 <div>Conductor: <Badge variant="outline">{formData.conductorSize} mm² {formData.conductorMaterial}</Badge></div>
                 <div>Insulation: <Badge variant="outline">{formData.insulationType.toUpperCase()}</Badge></div>
+                <div>Installation: <Badge variant="outline">
+                  {formData.installationType === 'direct_buried' ? 'Direct Buried' :
+                   formData.installationType === 'conduit' ? 'Conduit' : 'Duct Bank'}
+                </Badge></div>
                 <div>Depth: <Badge variant="outline">{formData.burialDepth} m</Badge></div>
                 <div>Soil ρ: <Badge variant="outline">{formData.soilResistivity} K·m/W</Badge></div>
+                {formData.installationType === 'duct_bank' && (
+                  <div>Concrete ρ: <Badge variant="outline">{formData.concreteResistivity} K·m/W</Badge></div>
+                )}
               </div>
             </div>
 
