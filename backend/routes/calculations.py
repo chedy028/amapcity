@@ -21,6 +21,8 @@ from cable_ampacity.thermal_resistance import (
     ConduitConditions,
     DuctBankConditions,
     CableGeometry,
+    BackfillLayer,
+    CablePosition,
 )
 from cable_ampacity.solver import (
     CableSpec,
@@ -39,11 +41,18 @@ class ConductorInput(BaseModel):
     diameter_mm: float = Field(..., gt=0, description="Conductor diameter in mm")
     stranding: Literal["solid", "stranded_round", "stranded_compact", "segmental"] = "stranded_compact"
     dc_resistance_20c: Optional[float] = Field(None, description="DC resistance at 20°C in ohm/m")
+    # CYMCAP-aligned optional parameters
+    ks: Optional[float] = Field(None, ge=0, le=1, description="Skin effect coefficient (Ks), e.g., 0.62 for Milliken")
+    kp: Optional[float] = Field(None, ge=0, le=1, description="Proximity effect coefficient (Kp), e.g., 0.37 for Milliken")
 
 
 class InsulationInput(BaseModel):
     material: Literal["xlpe", "epr", "paper_oil"] = "xlpe"
     thickness_mm: float = Field(..., gt=0, description="Insulation thickness in mm")
+    # CYMCAP-aligned optional parameters
+    tan_delta: Optional[float] = Field(None, ge=0, description="Dielectric loss factor (tan δ), e.g., 0.001 for XLPE")
+    permittivity: Optional[float] = Field(None, gt=0, description="Relative permittivity (εr), e.g., 2.5 for XLPE")
+    thermal_resistivity: Optional[float] = Field(None, gt=0, description="Thermal resistivity in K.m/W, e.g., 3.5 for XLPE")
 
 
 class ShieldInput(BaseModel):
@@ -52,6 +61,25 @@ class ShieldInput(BaseModel):
     thickness_mm: float = Field(..., gt=0, description="Shield thickness in mm")
     mean_diameter_mm: float = Field(..., gt=0, description="Mean diameter of shield in mm")
     bonding: Literal["single_point", "both_ends", "cross_bonded"] = "single_point"
+
+
+class BackfillLayerInput(BaseModel):
+    """CYMCAP-style backfill layer definition."""
+    name: str = Field(..., description="Layer identifier (e.g., 'Thermal Backfill')")
+    x_center_m: float = Field(0.0, description="X coordinate of layer center (m)")
+    y_top_m: float = Field(..., ge=0, description="Depth to top of layer (m)")
+    width_m: float = Field(..., gt=0, description="Layer width (m)")
+    height_m: float = Field(..., gt=0, description="Layer height/thickness (m)")
+    thermal_resistivity: float = Field(..., gt=0, description="Thermal resistivity (K.m/W)")
+
+
+class CablePositionInput(BaseModel):
+    """CYMCAP-style cable position definition."""
+    x_m: float = Field(..., description="X coordinate (m, 0 = center)")
+    y_m: float = Field(..., gt=0, description="Y coordinate / depth (m)")
+    circuit_id: int = Field(1, ge=1, description="Circuit number")
+    phase: str = Field("A", description="Phase identifier (A, B, C)")
+    cable_id: Optional[str] = Field(None, description="Optional cable identifier")
 
 
 class InstallationInput(BaseModel):
@@ -65,6 +93,7 @@ class InstallationInput(BaseModel):
     conduit_id_mm: Optional[float] = Field(None, description="Conduit inner diameter in mm")
     conduit_od_mm: Optional[float] = Field(None, description="Conduit outer diameter in mm")
     conduit_material: Literal["pvc", "hdpe", "fiberglass", "steel"] = "pvc"
+    conduit_thermal_resistivity: Optional[float] = Field(None, gt=0, description="Conduit thermal resistivity in K.m/W")
     num_conduits: int = Field(1, ge=1, description="Number of conduits")
 
     # Duct bank-specific parameters
@@ -78,6 +107,10 @@ class InstallationInput(BaseModel):
     duct_id_mm: Optional[float] = Field(None, description="Duct inner diameter in mm")
     duct_od_mm: Optional[float] = Field(None, description="Duct outer diameter in mm")
     occupied_ducts: Optional[list] = Field(None, description="List of [row, col] positions for occupied ducts")
+
+    # CYMCAP-style multi-layer and multi-cable support
+    backfill_layers: Optional[List[BackfillLayerInput]] = Field(None, description="List of backfill layers")
+    cable_positions: Optional[List[CablePositionInput]] = Field(None, description="Explicit cable positions")
 
 
 class OperatingInput(BaseModel):
@@ -94,8 +127,12 @@ class AmpacityRequest(BaseModel):
     shield: Optional[ShieldInput] = None
     jacket_thickness_mm: float = Field(3.0, gt=0)
     jacket_material: Literal["pvc", "pe", "hdpe"] = "pe"
+    jacket_thermal_resistivity: Optional[float] = Field(None, gt=0, description="Jacket thermal resistivity in K.m/W")
     installation: InstallationInput
     operating: OperatingInput
+    # CYMCAP-style additional cable layers
+    conductor_shield_thickness_mm: float = Field(0.0, ge=0, description="Conductor shield thickness in mm")
+    insulation_screen_thickness_mm: float = Field(0.0, ge=0, description="Insulation screen thickness in mm")
 
 
 class AmpacityResponse(BaseModel):
@@ -132,12 +169,17 @@ async def calculate(request: AmpacityRequest):
             diameter=request.conductor.diameter_mm,
             stranding=request.conductor.stranding,
             dc_resistance_20c=request.conductor.dc_resistance_20c,
+            ks=request.conductor.ks,  # CYMCAP-aligned
+            kp=request.conductor.kp,  # CYMCAP-aligned
         )
 
         insulation = InsulationSpec(
             material=request.insulation.material,
             thickness=request.insulation.thickness_mm,
             conductor_diameter=request.conductor.diameter_mm,
+            tan_delta=request.insulation.tan_delta,  # CYMCAP-aligned
+            permittivity=request.insulation.permittivity,  # CYMCAP-aligned
+            thermal_resistivity=request.insulation.thermal_resistivity,  # CYMCAP-aligned
         )
 
         shield = None
@@ -156,6 +198,10 @@ async def calculate(request: AmpacityRequest):
             shield=shield,
             jacket_thickness=request.jacket_thickness_mm,
             jacket_material=request.jacket_material,
+            conductor_shield_thickness=request.conductor_shield_thickness_mm,  # CYMCAP-aligned
+            insulation_screen_thickness=request.insulation_screen_thickness_mm,  # CYMCAP-aligned
+            insulation_thermal_resistivity=request.insulation.thermal_resistivity,  # CYMCAP-aligned
+            jacket_thermal_resistivity=request.jacket_thermal_resistivity,  # CYMCAP-aligned
         )
 
         # Create installation conditions based on type
@@ -186,6 +232,35 @@ async def calculate(request: AmpacityRequest):
             if inst.occupied_ducts:
                 occupied = [tuple(d) for d in inst.occupied_ducts]
 
+            # Convert backfill layers from input to internal format
+            backfill_layers = None
+            if inst.backfill_layers:
+                backfill_layers = [
+                    BackfillLayer(
+                        name=layer.name,
+                        x_center=layer.x_center_m,
+                        y_top=layer.y_top_m,
+                        width=layer.width_m,
+                        height=layer.height_m,
+                        thermal_resistivity=layer.thermal_resistivity,
+                    )
+                    for layer in inst.backfill_layers
+                ]
+
+            # Convert cable positions from input to internal format
+            cable_positions = None
+            if inst.cable_positions:
+                cable_positions = [
+                    CablePosition(
+                        x=pos.x_m,
+                        y=pos.y_m,
+                        circuit_id=pos.circuit_id,
+                        phase=pos.phase,
+                        cable_id=pos.cable_id,
+                    )
+                    for pos in inst.cable_positions
+                ]
+
             installation = DuctBankConditions(
                 depth=inst.depth_m,
                 soil_resistivity=inst.soil_resistivity,
@@ -201,6 +276,9 @@ async def calculate(request: AmpacityRequest):
                 duct_od_mm=duct_od,
                 duct_material=inst.conduit_material,
                 occupied_ducts=occupied,
+                backfill_layers=backfill_layers,  # CYMCAP-aligned
+                cable_positions=cable_positions,  # CYMCAP-aligned
+                conduit_thermal_resistivity=inst.conduit_thermal_resistivity,  # CYMCAP-aligned
             )
         else:
             # Direct buried (default)

@@ -40,29 +40,29 @@ export function ReportViewer({ isOpen, onClose, htmlContent }: ReportViewerProps
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden mt-4 h-full">
-          {htmlContent ? (
-            <iframe
+            {htmlContent ? (
+              <iframe
               ref={iframeRef}
-              srcDoc={htmlContent}
-              className="w-full h-full border rounded-lg"
-              title="Report Preview"
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              No report content available
-            </div>
-          )}
-        </div>
+                srcDoc={htmlContent}
+                className="w-full h-full border rounded-lg"
+                title="Report Preview"
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                No report content available
+              </div>
+            )}
+              </div>
 
         <div className="flex justify-end gap-2 mt-4">
           {htmlContent && (
             <>
               <Button variant="outline" onClick={handleDownloadHtml}>
-                Download HTML
-              </Button>
+              Download HTML
+            </Button>
               <Button onClick={handlePrint}>
                 Print / Save as PDF
-              </Button>
+            </Button>
             </>
           )}
           <Button variant="secondary" onClick={onClose}>

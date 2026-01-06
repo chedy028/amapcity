@@ -14,11 +14,12 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 
-# Dielectric properties
+# Dielectric properties - defaults per CYMCAP/manufacturer typical values
+# Note: tan_delta can vary significantly; users should verify with manufacturer data
 INSULATION_PROPERTIES = {
     # (tan_delta, permittivity)
-    "xlpe": (0.004, 2.5),          # Cross-linked polyethylene
-    "epr": (0.020, 3.0),           # Ethylene propylene rubber
+    "xlpe": (0.001, 2.5),          # Cross-linked polyethylene (CYMCAP default: 0.001)
+    "epr": (0.005, 3.0),           # Ethylene propylene rubber (typical: 0.005-0.020)
     "paper_oil": (0.0035, 3.5),    # Impregnated paper
 }
 
@@ -32,12 +33,17 @@ MAX_CONDUCTOR_TEMP = {
 
 @dataclass
 class InsulationSpec:
-    """Specification for cable insulation."""
+    """Specification for cable insulation.
+
+    Note: tan_delta and permittivity have sensible defaults but can be overridden
+    with manufacturer-specific values. CYMCAP typically uses tan_delta=0.001 for XLPE.
+    """
     material: Literal["xlpe", "epr", "paper_oil"]
     thickness: float              # mm
     conductor_diameter: float     # mm (over conductor)
-    tan_delta: Optional[float] = None  # Loss factor (override default)
+    tan_delta: Optional[float] = None  # Loss factor (override default, e.g., 0.001 for XLPE)
     permittivity: Optional[float] = None  # Relative permittivity (override default)
+    thermal_resistivity: Optional[float] = None  # K.m/W (override default, e.g., 3.5 for XLPE)
 
 
 @dataclass

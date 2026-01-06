@@ -30,7 +30,10 @@ from .thermal_resistance import (
 
 @dataclass
 class CableSpec:
-    """Complete cable specification for ampacity calculation."""
+    """Complete cable specification for ampacity calculation.
+
+    Supports CYMCAP-aligned optional parameters for detailed cable geometry.
+    """
     # Conductor
     conductor: ConductorSpec
     # Insulation
@@ -40,6 +43,12 @@ class CableSpec:
     # Jacket
     jacket_thickness: float = 3.0  # mm
     jacket_material: Literal["pvc", "pe", "hdpe"] = "pe"
+    # CYMCAP-aligned optional layers
+    conductor_shield_thickness: float = 0.0  # mm (semiconducting layer over conductor)
+    insulation_screen_thickness: float = 0.0  # mm (semiconducting layer over insulation)
+    # CYMCAP-aligned optional thermal resistivity overrides
+    insulation_thermal_resistivity: Optional[float] = None  # K.m/W
+    jacket_thermal_resistivity: Optional[float] = None  # K.m/W
 
     @property
     def geometry(self) -> CableGeometry:
@@ -52,6 +61,11 @@ class CableSpec:
             jacket_thickness=self.jacket_thickness,
             insulation_material=self.insulation.material,
             jacket_material=self.jacket_material,
+            # CYMCAP-aligned parameters
+            conductor_shield_thickness=self.conductor_shield_thickness,
+            insulation_screen_thickness=self.insulation_screen_thickness,
+            insulation_thermal_resistivity=self.insulation_thermal_resistivity,
+            jacket_thermal_resistivity=self.jacket_thermal_resistivity,
         )
 
 
