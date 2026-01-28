@@ -9,6 +9,7 @@ from .ac_resistance import calculate_ac_resistance
 from .losses import calculate_losses
 from .thermal_resistance import calculate_thermal_resistances
 from .solver import calculate_ampacity
+from .report_generator import generate_qaqc_report, ReportConfig
 
 __version__ = "0.1.0"
 __all__ = [
@@ -16,4 +17,6 @@ __all__ = [
     "calculate_losses",
     "calculate_thermal_resistances",
     "calculate_ampacity",
+    "generate_qaqc_report",
+    "ReportConfig",
 ]

@@ -1502,7 +1502,7 @@ def calculate_ductbank_thermal_resistances(
 
             # Mutual heating contribution
             if d_pk_image > d_pk:
-                mutual_contrib = (rho_soil / (2 * math.pi)) * math.log(d_pk_image / d_pk)
+                mutual_contrib = (duct_bank.soil_resistivity / (2 * math.pi)) * math.log(d_pk_image / d_pk)
                 total_mutual += mutual_contrib
 
         if r4 > 0:
